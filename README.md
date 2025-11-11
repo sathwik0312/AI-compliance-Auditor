@@ -80,7 +80,8 @@ Final Compliance Report
 
 * **Resource:** `alice`
     * **Problem:** `mfa_enabled` was `False` (Expected: `true`)
-    * **Remediation:** `aws iam create-virtual-mfa-device --virtual-mfa-device-name MyVirtualMFA --outfile MyVirtualMFA.qr --bootstrap-method QRCode && aws iam enable-mfa-device --user-name alice --serial-number arn:aws:iam::ACCOUNT-ID:mfa/MyVirtualMFA --authentication-code-1 CODE1 --authentication-code-2 CODE2```
+    * **Remediation:** `aws iam create-virtual-mfa-device --virtual-mfa-device-name MyVirtualMFA --outfile MyVirtualMFA.qr --bootstrap-method QRCode && aws iam enable-mfa-device --user-name alice --serial-number arn:aws:iam::ACCOUNT-ID:mfa/MyVirtualMFA --authentication-code-1 CODE1 --authentication-code-2 CODE2
+```
 
 
 ## How to Run
