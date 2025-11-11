@@ -86,7 +86,6 @@ Final Compliance Report
 
 ## How to Run
 1.Build a Docker image:
-    docker build -t compliance-auditor .
-
+   docker build -t compliance-auditor .
 2. Run the container
     docker run --rm -e GOOGLE_API_KEY="YOUR_API_KEY_GOES_HERE" compliance-auditor
