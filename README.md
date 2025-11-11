@@ -35,7 +35,7 @@ This project uses a sequential, stateful architecture. A central `main.py` scrip
 
 ---
 
-## 🚀 Demo Output
+## Demo Output
 
 This is the output from running the pipeline with a `policy.txt` and a `config.json` that contains 3 violations.
 
@@ -80,10 +80,10 @@ Final Compliance Report
 
 * **Resource:** `alice`
     * **Problem:** `mfa_enabled` was `False` (Expected: `true`)
-    * **Remediation:** `aws iam create-virtual-mfa-device --virtual-mfa-device-name MyVirtualMFA --outfile MyVirtualMFA.qr --bootstrap-method QRCode && aws iam enable-mfa-device --user-name alice --serial-number arn:aws:iam::ACCOUNT-ID:mfa/MyVirtualMFA --authentication-code-1 CODE1 --authentication-code-2 CODE2`
+    * **Remediation:** `aws iam create-virtual-mfa-device --virtual-mfa-device-name MyVirtualMFA --outfile MyVirtualMFA.qr --bootstrap-method QRCode && aws iam enable-mfa-device --user-name alice --serial-number arn:aws:iam::ACCOUNT-ID:mfa/MyVirtualMFA --authentication-code-1 CODE1 --authentication-code-2 CODE2```
 
 
-**How to Run
+## How to Run
 1.Build a Docker image:
     docker build -t compliance-auditor .
 
