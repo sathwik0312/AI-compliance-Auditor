@@ -1,0 +1,5 @@
+Company Security Policy:
+1. All S3 buckets must have 'encryption' set to 'AES256'.
+2. All S3 buckets must have 'public_access' set to 'false'.
+3. All EC2 instances must have 'subnet_type' set to 'private'.
+4. All IAM users must have 'mfa_enabled' set to 'true'.

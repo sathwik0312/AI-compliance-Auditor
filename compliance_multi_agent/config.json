@@ -1,0 +1,32 @@
+{
+  "aws_configuration": {
+    "s3_buckets": [
+      {
+        "name": "s3-bucket-logs",
+        "encryption": null,
+        "public_access": false
+      },
+      {
+        "name": "s3-bucket-public",
+        "encryption": "AES256",
+        "public_access": true
+      }
+    ],
+    "ec2_instances": [
+      {
+        "instance_id": "i-12345",
+        "subnet_type": "public"
+      }
+    ],
+    "iam_users": [
+      {
+        "username": "bob",
+        "mfa_enabled": true
+      },
+      {
+        "username": "alice",
+        "mfa_enabled": false
+      }
+    ]
+  }
+}
