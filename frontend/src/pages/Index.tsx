@@ -122,7 +122,7 @@ const Index = () => {
       formData.append("policy", policyFile);
       formData.append("config", configFile);
 
-      const response = await fetch("http://localhost:8000/audit", {
+      const response = await fetch("https://ai-compliance-auditor.onrender.com/audit", {
         method: "POST",
         body: formData,
       });
