@@ -2,43 +2,45 @@ from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
 import json
 
-def save_rules_to_state(rules_as_json_string: str, tool_context: ToolContext) -> str:
+def save_rules_to_state(rules: str, tool_context: ToolContext) -> str:
     """
     Saves the extracted compliance rules to the session state.
+    Args:
+        rules: A JSON-formatted string containing the list of rules.
     """
     try:
-        if isinstance(rules_as_json_string, list):
-            rules = rules_as_json_string
+        print(f"[Tool Log] Received rules: {rules}")
+        # Handle list vs string
+        if isinstance(rules, list):
+            data = rules
         else:
-            cleaned = str(rules_as_json_string).strip().replace("```json", "").replace("```", "").strip()
-            rules = json.loads(cleaned)
+            # Clean possible markdown
+            cleaned = str(rules).strip().replace("```json", "").replace("```", "").strip()
+            data = json.loads(cleaned)
             
-        tool_context.state["parsed_rules"] = rules
-        return f"Successfully saved {len(rules)} rules."
+        tool_context.state["parsed_rules"] = data
+        return f"Successfully saved {len(data)} rules to state."
     except Exception as e:
+        print(f"[Tool Log] Error parsing rules: {str(e)}")
         return f"Error: {str(e)}"
 
 policy_agent = Agent(
     name="policy_agent",
     model="gemini-2.0-flash",
-    description="Analyzes security policy text and saves structured rules to state.",
+    description="Extracts structured compliance rules from text.",
     instruction="""
-    You are a Security Policy Analyst. 
-    Your ONLY task is to extract compliance rules from the provided text.
+    You are a Data Extraction Specialist.
     
-    For each rule, identify:
-    - resource_type (e.g., S3 bucket, IAM user)
-    - property (e.g., encryption, mfa_enabled)
-    - expected_value (e.g., AES256, true)
+    TASK:
+    1. Read the provided security policy.
+    2. Extract each requirement into this format: {"resource_type": "...", "property": "...", "expected_value": "..."}
+    3. Call the `save_rules_to_state` tool with the FULL LIST of rules as a JSON string.
     
-    PROCEDURE:
-    1. Extract all rules.
-    2. Convert the list of rules into a JSON string.
-    3. CALL the `save_rules_to_state` tool with that JSON string.
-    
-    CRITICAL: 
-    - Do not use brackets like {{var}} in your response.
-    - JUST call the tool.
+    RULES:
+    - ONLY extract rules explicitly mentioned.
+    - Do not add rules from your own memory.
+    - If the text mentions S3, EC2, and IAM, only extract those.
+    - Your FIRST response must be a call to the `save_rules_to_state` tool.
     """,
     tools=[save_rules_to_state]
 )

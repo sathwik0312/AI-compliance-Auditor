@@ -31,8 +31,12 @@ app.add_middleware(
 session_service = InMemorySessionService()
 APP_NAME = "ComplianceApp"
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "message": "Auditor API is online"}
+
 async def run_agent_conversation(agent, request, app_name, session_id, user_id):
-    logger.info(f"Triggering Agent: {agent.name}")
+    logger.info(f"--- Starting Conversation with {agent.name} ---")
     runner = Runner(
         agent=agent,
         app_name=app_name,
@@ -44,50 +48,48 @@ async def run_agent_conversation(agent, request, app_name, session_id, user_id):
         content = types.Content(role='user', parts=[types.Part(data=request)])
     
     try:
+        # We loop and log to see what the agent is actually saying/doing
         async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-            pass
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text:
+                        logger.info(f"[{agent.name}] Text: {part.text}")
+                    if part.function_call:
+                        logger.info(f"[{agent.name}] Calling Tool: {part.function_call.name}")
     except Exception as e:
         logger.error(f"Runner error for {agent.name}: {e}")
 
-    # Use a safer way to get the session state that works across ADK versions
-    # We pass the session_id directly if the service expects 1 arg (the key)
-    try:
-        # Try full key first
-        session = await session_service.get_session(session_id)
-    except:
-        # Fallback to creating a key if needed, or using the session object directly if possible
-        # Since we just created it in start_audit, we will pass it back from there instead
-        return None
-    
-    return session.state
+    # No need to return state here, as we access the session object in start_audit
+    return None
 
 @app.post("/audit")
 async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(...)):
     USER_ID = f"user-{uuid.uuid4()}"
     session = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID, state={})
     SESSION_ID = session.id
-    logger.info(f"New session started: {SESSION_ID}")
+    logger.info(f"SESSION_START: {SESSION_ID}")
 
     try:
         policy_content = (await policy.read()).decode('utf-8')
         config_content = (await config.read()).decode('utf-8')
     except Exception as e:
-        return {"status": "error", "message": "Failed to read files."}
+        return {"status": "error", "message": f"File read error: {str(e)}"}
 
-    # Step 1: Policy Analyst
+    # STEP 1: Policy Extraction
     await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
     
-    # Check current session object directly (most reliable)
+    # Check session state directly
     if "parsed_rules" not in session.state or not session.state["parsed_rules"]:
-         return {"status": "error", "message": "Policy agent failed to extract rules. Check if policy text contains valid rules."}
+         logger.error("Step 1 Failed: 'parsed_rules' not found in state.")
+         return {"status": "error", "message": "Policy agent failed to extract rules. The AI didn't call the storage tool."}
 
-    # Step 2: Auditor
+    # STEP 2: Audit
     await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
     
-    # Step 3: Remediator
+    # STEP 3: Remediation
     await run_agent_conversation(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
 
-    # Step 4: Report Writer
+    # STEP 4: Report
     await run_agent_conversation(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
 
     return {
