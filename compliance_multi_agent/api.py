@@ -31,74 +31,55 @@ app.add_middleware(
 session_service = InMemorySessionService()
 APP_NAME = "ComplianceApp"
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "message": "Auditor API is online"}
-
-async def run_agent_conversation(agent, request, app_name, session_id, user_id):
-    logger.info(f"--- Starting Conversation with {agent.name} ---")
-    runner = Runner(
-        agent=agent,
-        app_name=app_name,
-        session_service=session_service
-    )
-    if isinstance(request, str):
-        content = types.Content(role='user', parts=[types.Part(text=request)])
-    else:
-        content = types.Content(role='user', parts=[types.Part(data=request)])
-    
-    try:
-        # We loop and log to see what the agent is actually saying/doing
-        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if part.text:
-                        logger.info(f"[{agent.name}] Text: {part.text}")
-                    if part.function_call:
-                        logger.info(f"[{agent.name}] Calling Tool: {part.function_call.name}")
-    except Exception as e:
-        logger.error(f"Runner error for {agent.name}: {e}")
-
-    # No need to return state here, as we access the session object in start_audit
-    return None
+async def get_agent_text(agent, request, app_name, session_id, user_id):
+    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+    content = types.Content(role='user', parts=[types.Part(text=request)])
+    output = ""
+    async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+        if event.content and event.content.parts:
+            for part in event.content.parts:
+                if part.text:
+                    output += part.text
+    return output
 
 @app.post("/audit")
 async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(...)):
     USER_ID = f"user-{uuid.uuid4()}"
     session = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID, state={})
     SESSION_ID = session.id
-    logger.info(f"SESSION_START: {SESSION_ID}")
 
+    policy_content = (await policy.read()).decode('utf-8')
+    config_content = (await config.read()).decode('utf-8')
+
+    # STEP 1: Forced JSON Extraction
+    raw_json = await get_agent_text(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
     try:
-        policy_content = (await policy.read()).decode('utf-8')
-        config_content = (await config.read()).decode('utf-8')
+        # Clean potential AI markdown and parse
+        cleaned_json = raw_json.strip().replace("```json", "").replace("```", "").strip()
+        rules = json.loads(cleaned_json)
+        # MANUAL INJECTION into state to guarantee success
+        session.state["parsed_rules"] = rules
+        logger.info(f"Manually injected {len(rules)} rules into state.")
     except Exception as e:
-        return {"status": "error", "message": f"File read error: {str(e)}"}
+        logger.error(f"Failed to parse AI JSON response: {raw_json}")
+        return {"status": "error", "message": "Failed to parse compliance rules."}
 
-    # STEP 1: Policy Extraction
-    await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
+    # STEP 2: Auditor
+    findings = await get_agent_text(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
     
-    # Check session state directly
-    if "parsed_rules" not in session.state or not session.state["parsed_rules"]:
-         logger.error("Step 1 Failed: 'parsed_rules' not found in state.")
-         return {"status": "error", "message": "Policy agent failed to extract rules. The AI didn't call the storage tool."}
-
-    # STEP 2: Audit
-    await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
-    
-    # STEP 3: Remediation
-    await run_agent_conversation(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
+    # STEP 3: Remediator
+    remediation = await get_agent_text(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
 
     # STEP 4: Report
-    await run_agent_conversation(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
+    report = await get_agent_text(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
 
     return {
         "status": "success",
         "sessionId": SESSION_ID,
         "results": {
             "parsed_rules": session.state.get("parsed_rules"),
-            "findings": session.state.get("audit_findings"),
-            "final_report": session.state.get("final_report")
+            "findings": findings,
+            "final_report": report
         }
     }
 
