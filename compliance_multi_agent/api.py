@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
@@ -16,10 +16,9 @@ load_dotenv()
 
 app = FastAPI()
 
-# Enable CORS for the frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust this in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,11 +37,14 @@ async def run_agent_conversation(agent, request, app_name, session_id, user_id):
     else:
         content = types.Content(role='user', parts=[types.Part(data=request)])
     
-    output = None
+    output = ""
+    # We loop until we get a response that actually has text.
+    # The ADK Runner handles the tool calling loop internally.
     async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
         if event.is_final_response() and event.content and event.content.parts:
-            output = event.content.parts[0].text
-            break
+            for part in event.content.parts:
+                if part.text:
+                    output += part.text
     return output
 
 @app.post("/audit")
@@ -50,34 +52,37 @@ async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(
     APP_NAME = "ComplianceApp"
     USER_ID = "portfolio-user"
     
-    # Create Session
     session = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID, state={})
     SESSION_ID = session.id
 
-    # Read files
     policy_content = (await policy.read()).decode('utf-8')
     config_content = (await config.read()).decode('utf-8')
 
     # Step 1: Policy Analyst
-    step1_response = await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
+    # We call this and ignore the string output, as the important part is the state side-effect
+    await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
+
+    # Verify state actually has the rules before moving to step 2
+    state_session = await session_service.get_session(APP_NAME, SESSION_ID, USER_ID)
+    if "parsed_rules" not in state_session.state:
+        return {"status": "error", "message": "Policy agent failed to store rules in session state."}
 
     # Step 2: Auditor
-    step2_response = await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
+    findings = await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
 
     # Step 3: Remediator
-    step3_response = await run_agent_conversation(remediator_agent, "Audit complete. Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
+    remediation = await run_agent_conversation(remediator_agent, "Audit complete. Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
 
     # Step 4: Report Writer
-    step4_response = await run_agent_conversation(report_agent, "Generate final report.", APP_NAME, SESSION_ID, USER_ID)
+    report = await run_agent_conversation(report_agent, "Generate final report.", APP_NAME, SESSION_ID, USER_ID)
 
     return {
         "status": "success",
         "sessionId": SESSION_ID,
         "results": {
-            "parsed_rules": step1_response,
-            "findings": step2_response,
-            "remediation": step3_response,
-            "final_report": step4_response
+            "findings": findings,
+            "remediation": remediation,
+            "final_report": report
         }
     }
 
