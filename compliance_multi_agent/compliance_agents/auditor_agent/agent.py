@@ -4,14 +4,11 @@ import json
 
 def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -> str:
     """
-    Final Hardened Auditor Logic:
-    1. Reads rules from session state
-    2. Performs case-insensitive matching on resource types and properties
-    3. Guarantees a JSON list return even on error
+    Core Auditor Logic with strict key mapping for your specific config.json.
     """
     rules = tool_context.state.get('parsed_rules')
     if not rules:
-        return json.dumps([{"rule": "System", "status": "fail", "detail": "No rules found in session state. Extraction failed."}])
+        return json.dumps([{"rule": "System", "status": "fail", "detail": "No rules found in session state."}])
 
     try:
         if isinstance(config_as_json_string, dict):
@@ -25,48 +22,44 @@ def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -
     findings = []
     aws_config = config.get("aws_configuration", {})
 
-    # The mapping based on the provided config.json structure
-    # Matches natural language to the actual JSON keys
-    key_mapping = {
+    # Map the exact natural language used in your 4 rules to the JSON keys
+    mapping = {
         "s3 bucket": "s3_buckets",
         "s3 buckets": "s3_buckets",
-        "iam user": "iam_users",
-        "iam users": "iam_users",
         "ec2 instance": "ec2_instances",
-        "ec2 instances": "ec2_instances"
+        "ec2 instances": "ec2_instances",
+        "iam user": "iam_users",
+        "iam users": "iam_users"
     }
 
     for rule in rules:
-        # Extract rule components (handling different possible key names from policy_agent)
-        r_type_raw = rule.get("resource_type") or rule.get("resource") or ""
-        prop = rule.get("property") or rule.get("attribute") or ""
-        expected = str(rule.get("expected_value") or rule.get("value") or "").lower()
+        r_type_raw = rule.get("resource_type", "")
+        prop = rule.get("property", "")
+        expected = str(rule.get("expected_value", "")).lower()
 
-        if not r_type_raw: continue
-
-        # Get the correct key for the aws_configuration dict
-        json_key = key_mapping.get(r_type_raw.lower(), r_type_raw.lower().replace(" ", "_"))
+        # Find the correct key in the JSON
+        json_key = mapping.get(r_type_raw.lower())
+        if not json_key:
+             # Fallback to generic pluralization
+             json_key = r_type_raw.lower().replace(" ", "_") + "s"
+        
         resources = aws_config.get(json_key, [])
-
+        
         if not resources:
-            findings.append({
-                "rule": f"{r_type_raw} {prop}",
-                "status": "pass",
-                "detail": f"No {r_type_raw} resources found to audit."
+             findings.append({
+                "rule": f"{r_type_raw}: {prop}",
+                "status": "fail", 
+                "detail": f"No resources of type '{json_key}' found in config."
             })
-            continue
+             continue
 
         for res in resources:
             res_name = res.get("name") or res.get("username") or res.get("instance_id") or "Unknown"
-            # Get actual value, checking for exact prop name or lowercase
             actual_val = res.get(prop)
-            if actual_val is None:
-                actual_val = res.get(prop.lower())
             
-            actual_str = str(actual_val).lower()
-            
-            # THE CORE CHECK
-            is_pass = actual_str == expected
+            # Strict string matching for compliance
+            actual_str = str(actual_val).lower() if actual_val is not None else "none"
+            is_pass = (actual_str == expected)
             
             findings.append({
                 "rule": f"{r_type_raw}: {prop}",
@@ -80,14 +73,11 @@ def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -
 auditor_agent = Agent(
     name="config_auditor",
     model="gemini-2.0-flash",
-    description="Audits configuration JSON against extracted policy rules.",
+    description="Audits configuration against parsed rules.",
     instruction="""
-    SYSTEM: You are a compliance audit runner.
-    
-    TASK: Call the `audit_configuration` tool with the provided configuration JSON.
-    
-    RESPONSE: Return ONLY the JSON array output from the tool. 
-    DO NOT provide any text summary, markdown, or explanation.
+    You are a technical auditor. 
+    You MUST call the `audit_configuration` tool with the configuration provided in the user's message.
+    Return ONLY the tool's JSON output.
     """,
     tools=[audit_configuration]
 )

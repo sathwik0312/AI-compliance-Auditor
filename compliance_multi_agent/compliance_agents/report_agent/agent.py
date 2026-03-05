@@ -1,40 +1,19 @@
 from google.adk.agents import Agent
-from google.adk.tools.tool_context import ToolContext
 
-
-def get_remediation_plan(tool_context: ToolContext) -> list[dict]:
-    """Reads the 'remediation_plan' from the state."""
-    print("[Tool Log] Report writer is reading 'remediation_plan' from state.")
-    plan = tool_context.state.get('remediation_plan', [])
-    return plan
-
-report_agent=Agent(
-    name="report_agent",
-    model="gemini-2.5-flash",
-    description="Generate a final report with remediation steps.",
+report_agent = Agent(
+    name="report_writer",
+    model="gemini-2.0-flash",
+    description="Summarizes the final compliance audit results into a professional report.",
     instruction="""
-    You are a professional report writer.
-    Your input is a JSON *string* representing a remediation plan.
-    Your *only* job is to generate a final, human-readable Markdown report
-    from this JSON string.
+    You are a Senior Compliance Officer.
     
-    1.  Parse the JSON string.
-    2.  If the string represents an empty list, state clearly that "No audit findings were
-        found and the configuration is fully compliant."
-    3.  If the string has findings, iterate through each object.
-        For each object, you will find a "finding" key and a "remediation" key.
-        - Use the "finding" key to describe the problem (resource, property, etc.)
-        - Use the "remediation" key to provide the fix.
-        - Format this clearly in Markdown, using headers (##) for sections
-          and bullet points (*) for each finding.
+    You will be given the audit findings from the previous agent.
     
-    Example for one finding:
+    TASK: Generate a professional, executive summary of the audit.
+    1. State clearly how many rules passed and how many failed.
+    2. Highlight the most critical security violations.
+    3. Keep it professional and concise.
     
-    ##  1 Violation Found
-    
-    * **Resource:** `s3-bucket-logs`
-        * **Problem:** `encryption` was `None` (Expected: `AES256`)
-        * **Remediation:** `aws s3api put-bucket-encryption ...`
-    """,
-    tools=[]
+    Return your response as a clear, formatted text report.
+    """
 )
