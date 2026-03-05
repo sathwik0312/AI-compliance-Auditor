@@ -5,35 +5,38 @@ import json
 def save_rules_to_state(rules_as_json_string: str, tool_context: ToolContext) -> str:
     """Saves rules to the session's 'state'."""
     try:
+        # Robust handling for list vs string
         if isinstance(rules_as_json_string, list):
             rules = rules_as_json_string
         else:
-            rules = json.loads(rules_as_json_string)
+            # Clean possible markdown block markers
+            cleaned = str(rules_as_json_string).strip().replace("```json", "").replace("```", "").strip()
+            rules = json.loads(cleaned)
+            
         tool_context.state["parsed_rules"] = rules
-        print(f"[DEBUG] Successfully saved {len(rules)} rules to state: {rules}")
-        return f"Successfully saved {len(rules)} rules."
+        print(f"[Tool Log] Saved {len(rules)} rules to state.")
+        return f"SUCCESS: {len(rules)} rules saved."
     except Exception as e:
-        print(f"[DEBUG] ERROR saving rules: {e}")
-        return f"Error: {str(e)}"
+        print(f"[Tool Log] ERROR in save_rules_to_state: {e}")
+        return f"ERROR: {str(e)}"
 
 policy_agent = Agent(
     name="policy_agent",
     model="gemini-2.0-flash",
-    description="Parse a text policy and saves it to the state.",
+    description="Extracts structured rules from text.",
     instruction="""
-    SYSTEM ROLE: You are a STRICT extraction agent.
+    You are a specialized Data Extraction Agent. 
     
-    TASK: Extract rules from the text provided by the user.
-    FORMAT: Each rule must have "resource_type", "property", "expected_value".
+    Task: Convert the provided security policy text into a JSON list of rules.
+    Format: Each rule MUST be an object with: "resource_type", "property", "expected_value".
     
-    STRICT RULES:
-    1. ONLY extract rules mentioned in the user's text.
-    2. DO NOT add rules about backups, passwords, or anything else not in the text.
-    3. If there are 4 rules in the text, you must return EXACTLY 4 rules.
-    4. You MUST call the `save_rules_to_state` tool.
-    5. Pass the rules as a JSON string to 'rules_as_json_string'.
+    CRITICAL: 
+    1. Your ONLY goal is to call the `save_rules_to_state` tool.
+    2. You MUST pass the rules as a JSON-formatted string to the 'rules_as_json_string' parameter.
+    3. Do NOT provide any text explanation or summary. Just call the tool.
     
-    The user text is the ONLY source of truth. Ignore all previous training data or general security knowledge.
+    Source Text: 
+    {text}
     """,
     tools=[save_rules_to_state]
 )
