@@ -17,8 +17,7 @@ def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -
     
     if not rules:
         print("[Tool Log] ERROR: No rules found in state.")
-        # Instead of crashing, let's return a helpful message
-        return "ERROR: No compliance rules were found in the session state. Please ensure the Policy Agent ran successfully."
+        return "ERROR: No compliance rules were found in the session state."
 
     # --- 2. PARSE the config string ---
     try:
@@ -36,7 +35,6 @@ def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -
     aws_config = config.get("aws_configuration", {})
 
     for rule in rules:
-        # Support both object and dict format
         r_type = rule.get("resource_type") if isinstance(rule, dict) else getattr(rule, "resource_type", None)
         prop = rule.get("property") if isinstance(rule, dict) else getattr(rule, "property", None)
         expected = rule.get("expected_value") if isinstance(rule, dict) else getattr(rule, "expected_value", None)
@@ -50,19 +48,19 @@ def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -
             resource_name = resource.get("name") or resource.get("instance_id") or resource.get("username") or "Unknown"
             actual_val = resource.get(prop)
             
-            if str(actual_val).lower() != str(expected).lower():
-                findings.append({
-                    "status": "NON-COMPLIANT",
-                    "resource_name": resource_name,
-                    "resource_type": r_type,
-                    "rule_property": prop,
-                    "expected_value": expected,
-                    "actual_value": actual_val
-                })
+            status = "pass" if str(actual_val).lower() == str(expected).lower() else "fail"
+            
+            findings.append({
+                "rule": f"{r_type} {prop} must be {expected}",
+                "status": status,
+                "detail": f"Actual value: {actual_val}"
+            })
 
     print(f"[Tool Log] Audit complete. Found {len(findings)} findings.")
     tool_context.state['audit_findings'] = findings
-    return f"Audit complete. Found {len(findings)} findings."
+    
+    # Return structured JSON so the agent can report it
+    return json.dumps(findings)
 
 
 auditor_agent=Agent(
@@ -71,10 +69,10 @@ auditor_agent=Agent(
     description="Runs the audit tool against a config file string.",
     instruction="""
     You are an auditor agent.
-    Your *only* job is to run the compliance audit.
-    You will be given the configuration data as a JSON string.
-    You must immediately call the `audit_configuration` tool
-    and pass the raw JSON string to its 'config_as_json_string' argument.
+    Your job is to run the compliance audit by calling the `audit_configuration` tool.
+    
+    Return the tool output (the JSON list of findings) as your final response. 
+    Do not add conversational text.
     """,
     tools=[audit_configuration]
 )
