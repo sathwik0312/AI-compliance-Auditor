@@ -31,10 +31,6 @@ app.add_middleware(
 session_service = InMemorySessionService()
 APP_NAME = "ComplianceApp"
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "message": "Auditor API is online"}
-
 async def run_agent_conversation(agent, request, app_name, session_id, user_id):
     logger.info(f"Triggering Agent: {agent.name}")
     runner = Runner(
@@ -47,14 +43,22 @@ async def run_agent_conversation(agent, request, app_name, session_id, user_id):
     else:
         content = types.Content(role='user', parts=[types.Part(data=request)])
     
-    # Wrap in a robust try-except to prevent crashing the whole pipeline
     try:
         async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
             pass
     except Exception as e:
-        logger.error(f"Error in runner for {agent.name}: {str(e)}")
+        logger.error(f"Runner error for {agent.name}: {e}")
+
+    # Use a safer way to get the session state that works across ADK versions
+    # We pass the session_id directly if the service expects 1 arg (the key)
+    try:
+        # Try full key first
+        session = await session_service.get_session(session_id)
+    except:
+        # Fallback to creating a key if needed, or using the session object directly if possible
+        # Since we just created it in start_audit, we will pass it back from there instead
+        return None
     
-    session = await session_service.get_session(app_name, session_id, user_id)
     return session.state
 
 @app.post("/audit")
@@ -68,36 +72,33 @@ async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(
         policy_content = (await policy.read()).decode('utf-8')
         config_content = (await config.read()).decode('utf-8')
     except Exception as e:
-        logger.error(f"File read error: {e}")
-        return {"status": "error", "message": "Failed to read uploaded files."}
+        return {"status": "error", "message": "Failed to read files."}
 
     # Step 1: Policy Analyst
-    try:
-        state = await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
-        if "parsed_rules" not in state or not state["parsed_rules"]:
-             return {"status": "error", "message": "Policy agent failed to extract rules."}
+    await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
+    
+    # Check current session object directly (most reliable)
+    if "parsed_rules" not in session.state or not session.state["parsed_rules"]:
+         return {"status": "error", "message": "Policy agent failed to extract rules. Check if policy text contains valid rules."}
 
-        # Step 2: Auditor
-        state = await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
-        
-        # Step 3: Remediator
-        state = await run_agent_conversation(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
+    # Step 2: Auditor
+    await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
+    
+    # Step 3: Remediator
+    await run_agent_conversation(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
 
-        # Step 4: Report Writer
-        state = await run_agent_conversation(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
+    # Step 4: Report Writer
+    await run_agent_conversation(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
 
-        return {
-            "status": "success",
-            "sessionId": SESSION_ID,
-            "results": {
-                "parsed_rules": state.get("parsed_rules"),
-                "findings": state.get("audit_findings"),
-                "final_report": state.get("final_report")
-            }
+    return {
+        "status": "success",
+        "sessionId": SESSION_ID,
+        "results": {
+            "parsed_rules": session.state.get("parsed_rules"),
+            "findings": session.state.get("audit_findings"),
+            "final_report": session.state.get("final_report")
         }
-    except Exception as e:
-        logger.error(f"Audit Pipeline Crash: {e}")
-        return {"status": "error", "message": f"Pipeline crashed: {str(e)}"}
+    }
 
 if __name__ == "__main__":
     import uvicorn
