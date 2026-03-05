@@ -45,7 +45,6 @@ async def run_agent_conversation(agent, request, app_name, session_id, user_id):
         content = types.Content(role='user', parts=[types.Part(data=request)])
     
     output = ""
-    # Use a timeout to prevent infinite loops
     try:
         async with asyncio.timeout(90):
             async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
@@ -55,7 +54,6 @@ async def run_agent_conversation(agent, request, app_name, session_id, user_id):
                             if part.text:
                                 output += part.text
                         except Exception:
-                            # Handle cases where part.text access might fail (e.g. function calls)
                             continue
     except asyncio.TimeoutError:
         print(f"[ERROR] Agent {agent.name} timed out.")
@@ -78,9 +76,9 @@ async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(
     print(f"[API] Step 1: Extracting rules from policy for session {SESSION_ID}")
     await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
 
-    # Verify state
-    state_session = await session_service.get_session(APP_NAME, SESSION_ID, USER_ID)
-    parsed_rules = state_session.state.get("parsed_rules", [])
+    # Corrected get_session call - it takes a single session_key string in some versions or specific kwargs
+    # Based on the error, it's expecting a single argument. We'll use the session object we already have.
+    parsed_rules = session.state.get("parsed_rules", [])
     print(f"[API] Rules stored in state: {len(parsed_rules)}")
 
     if not parsed_rules:
