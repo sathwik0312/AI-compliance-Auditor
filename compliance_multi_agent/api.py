@@ -20,6 +20,7 @@ logger = logging.getLogger("AuditorAPI")
 
 app = FastAPI()
 
+# VERY permissive CORS for the interview
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,6 +31,10 @@ app.add_middleware(
 
 session_service = InMemorySessionService()
 APP_NAME = "ComplianceApp"
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "message": "Auditor API is online"}
 
 async def run_agent_conversation(agent, request, app_name, session_id, user_id):
     logger.info(f"Triggering Agent: {agent.name}")
@@ -44,7 +49,6 @@ async def run_agent_conversation(agent, request, app_name, session_id, user_id):
         content = types.Content(role='user', parts=[types.Part(data=request)])
     
     async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-        # We must consume the entire generator to ensure tool calls are executed by the Runner
         pass
     
     session = await session_service.get_session(app_name, session_id, user_id)
@@ -61,23 +65,18 @@ async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(
     config_content = (await config.read()).decode('utf-8')
 
     # Step 1: Policy Analyst
-    logger.info("Step 1: Policy Analysis")
     state = await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
     
     if "parsed_rules" not in state or not state["parsed_rules"]:
-         logger.error("Failed to find 'parsed_rules' in state after Step 1")
-         return {"status": "error", "message": "Policy agent failed to extract rules. Please ensure the policy text is clear."}
+         return {"status": "error", "message": "Policy agent failed to extract rules."}
 
     # Step 2: Auditor
-    logger.info("Step 2: Auditing Configuration")
     state = await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
     
     # Step 3: Remediator
-    logger.info("Step 3: Generating Remediation Plan")
     state = await run_agent_conversation(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
 
     # Step 4: Report Writer
-    logger.info("Step 4: Compiling Final Report")
     state = await run_agent_conversation(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
 
     return {
