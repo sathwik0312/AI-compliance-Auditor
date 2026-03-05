@@ -2,13 +2,17 @@ from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
 import json
 
-def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -> str:
+def audit_configuration(config_as_json_string: str, parsed_rules_json: str, tool_context: ToolContext) -> str:
     """
     Core Auditor Logic with strict key mapping for your specific config.json.
     """
-    rules = tool_context.state.get('parsed_rules')
+    try:
+        rules = json.loads(parsed_rules_json)
+    except Exception as e:
+        return json.dumps([{"rule": "System", "status": "fail", "detail": f"Failed to parse rules JSON: {str(e)}"}])
+        
     if not rules:
-        return json.dumps([{"rule": "System", "status": "fail", "detail": "No rules found in session state."}])
+        return json.dumps([{"rule": "System", "status": "fail", "detail": "No rules provided."}])
 
     try:
         if isinstance(config_as_json_string, dict):
@@ -76,8 +80,8 @@ auditor_agent = Agent(
     description="Audits configuration against parsed rules.",
     instruction="""
     You are a technical auditor. 
-    You MUST call the `audit_configuration` tool with the configuration provided in the user's message.
-    Return ONLY the tool's JSON output.
+    You MUST IMMEDIATELY call the `audit_configuration` tool with BOTH the configuration (`config_as_json_string`) AND the parsed rules (`parsed_rules_json`) provided in the user's message.
+    Do not analyze the configuration yourself. Your ONLY job is to pass the data to the tool and return its exact JSON output.
     """,
     tools=[audit_configuration]
 )

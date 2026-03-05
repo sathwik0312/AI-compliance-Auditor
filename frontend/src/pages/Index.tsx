@@ -38,7 +38,7 @@ const Index = () => {
 
   const runAudit = useCallback(async () => {
     if (!policyFile || !configFile) return;
-    
+
     setIsRunning(true);
     setShowResults(false);
     setResults(null);
@@ -58,19 +58,19 @@ const Index = () => {
       if (!response.ok) throw new Error(`Backend Error: ${response.statusText}`);
 
       const data = await response.json();
-      
+
       if (data.status === "success") {
         // Correcting the data mapping to ensure parsed_rules is a list of strings
         const rawRules = data.results.parsed_rules || [];
-        const formattedRules = Array.isArray(rawRules) 
+        const formattedRules = Array.isArray(rawRules)
           ? rawRules.map((r: any) => typeof r === 'string' ? r : `${r.resource_type} ${r.property} must be ${r.expected_value}`)
           : [];
 
         // Correcting the findings parsing
         let parsedFindings = [];
         try {
-          parsedFindings = typeof data.results.findings === 'string' 
-            ? JSON.parse(data.results.findings) 
+          parsedFindings = typeof data.results.findings === 'string'
+            ? JSON.parse(data.results.findings)
             : data.results.findings;
         } catch (e) {
           console.error("Failed to parse findings:", e);

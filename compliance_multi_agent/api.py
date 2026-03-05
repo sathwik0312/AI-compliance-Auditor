@@ -58,26 +58,33 @@ async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(
         cleaned_json = raw_json.strip().replace("```json", "").replace("```", "").strip()
         rules = json.loads(cleaned_json)
         # MANUAL INJECTION into state to guarantee success
-        session.state["parsed_rules"] = rules
+        # Get the session to ensure we are modifying the right one
+        current_session = await session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID)
+        current_session.state["parsed_rules"] = rules
         logger.info(f"Manually injected {len(rules)} rules into state.")
     except Exception as e:
         logger.error(f"Failed to parse AI JSON response: {raw_json}")
         return {"status": "error", "message": "Failed to parse compliance rules."}
 
     # STEP 2: Auditor
-    findings = await get_agent_text(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
+    auditor_prompt = f"Here is the configuration:\n{config_content}\n\nHere are the parsed compliance rules (pass this as parsed_rules_json to your tool):\n{json.dumps(rules)}"
+    await get_agent_text(auditor_agent, auditor_prompt, APP_NAME, SESSION_ID, USER_ID)
     
+    updated_session = await session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID)
+    findings = updated_session.state.get("audit_findings", [])
+
     # STEP 3: Remediator
-    remediation = await get_agent_text(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
+    await get_agent_text(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
 
     # STEP 4: Report
-    report = await get_agent_text(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
-
+    report_prompt = f"Compile final report. Here are the audit findings: {findings}"
+    report = await get_agent_text(report_agent, report_prompt, APP_NAME, SESSION_ID, USER_ID)
+    
     return {
         "status": "success",
         "sessionId": SESSION_ID,
         "results": {
-            "parsed_rules": session.state.get("parsed_rules"),
+            "parsed_rules": rules,
             "findings": findings,
             "final_report": report
         }
