@@ -35,6 +35,7 @@ def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -
     aws_config = config.get("aws_configuration", {})
 
     for rule in rules:
+        # Robust lookup: handle both dict and object attributes
         r_type = rule.get("resource_type") if isinstance(rule, dict) else getattr(rule, "resource_type", None)
         prop = rule.get("property") if isinstance(rule, dict) else getattr(rule, "property", None)
         expected = rule.get("expected_value") if isinstance(rule, dict) else getattr(rule, "expected_value", None)
@@ -42,24 +43,34 @@ def audit_configuration(config_as_json_string: str, tool_context: ToolContext) -
         if not all([r_type, prop, expected]):
             continue 
 
-        resources = aws_config.get(r_type, [])
+        # Normalize keys for matching (e.g., "S3 bucket" -> "s3_buckets")
+        # Most configs use plural underscores
+        norm_r_type = str(r_type).lower().replace(" ", "_")
+        if not norm_r_type.endswith("s"):
+            norm_r_type += "s"
+            
+        resources = aws_config.get(norm_r_type, [])
         
+        # If still empty, try the original name
+        if not resources:
+            resources = aws_config.get(r_type, [])
+
         for resource in resources:
             resource_name = resource.get("name") or resource.get("instance_id") or resource.get("username") or "Unknown"
             actual_val = resource.get(prop)
             
+            # Use string comparison to handle bools/numbers correctly
             status = "pass" if str(actual_val).lower() == str(expected).lower() else "fail"
             
             findings.append({
                 "rule": f"{r_type} {prop} must be {expected}",
                 "status": status,
-                "detail": f"Actual value: {actual_val}"
+                "detail": f"Resource '{resource_name}' has {prop}='{actual_val}'"
             })
 
-    print(f"[Tool Log] Audit complete. Found {len(findings)} findings.")
+    print(f"[Tool Log] Audit complete. Found {len(findings)} results.")
     tool_context.state['audit_findings'] = findings
     
-    # Return structured JSON so the agent can report it
     return json.dumps(findings)
 
 
@@ -69,7 +80,9 @@ auditor_agent=Agent(
     description="Runs the audit tool against a config file string.",
     instruction="""
     You are an auditor agent.
-    Your job is to run the compliance audit by calling the `audit_configuration` tool.
+    Your task is to run the compliance audit by calling the `audit_configuration` tool.
+    
+    Pass the configuration provided in the user's message as the 'config_as_json_string' argument.
     
     Return the tool output (the JSON list of findings) as your final response. 
     Do not add conversational text.
