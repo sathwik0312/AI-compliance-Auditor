@@ -3,40 +3,54 @@ from google.adk.tools.tool_context import ToolContext
 import json
 
 def save_rules_to_state(rules_as_json_string: str, tool_context: ToolContext) -> str:
-    """Saves rules to the session's 'state'."""
+    """
+    Saves the extracted compliance rules to the session state.
+    Args:
+        rules_as_json_string: A JSON string or list containing the rules.
+    """
     try:
-        # Robust handling for list vs string
+        print(f"[DEBUG] save_rules_to_state called with: {rules_as_json_string}")
+        # Handle if model passes a list directly instead of a string
         if isinstance(rules_as_json_string, list):
             rules = rules_as_json_string
         else:
-            # Clean possible markdown block markers
+            # Clean possible markdown formatting
             cleaned = str(rules_as_json_string).strip().replace("```json", "").replace("```", "").strip()
             rules = json.loads(cleaned)
             
+        if not isinstance(rules, list):
+            return "Error: rules must be a list of objects."
+
         tool_context.state["parsed_rules"] = rules
-        print(f"[Tool Log] Saved {len(rules)} rules to state.")
-        return f"SUCCESS: {len(rules)} rules saved."
+        print(f"[DEBUG] State updated with {len(rules)} rules.")
+        return f"Successfully saved {len(rules)} rules to session state."
     except Exception as e:
-        print(f"[Tool Log] ERROR in save_rules_to_state: {e}")
-        return f"ERROR: {str(e)}"
+        print(f"[DEBUG] Tool Error: {str(e)}")
+        return f"Error: {str(e)}"
 
 policy_agent = Agent(
     name="policy_agent",
     model="gemini-2.0-flash",
-    description="Extracts structured rules from text.",
+    description="Analyzes security policy text and saves structured rules to state.",
     instruction="""
-    You are a specialized Data Extraction Agent. 
+    You are a Security Policy Analyst. 
+    Your ONLY task is to extract compliance rules from the user's input.
     
-    Task: Convert the provided security policy text into a JSON list of rules.
-    Format: Each rule MUST be an object with: "resource_type", "property", "expected_value".
+    For each rule, identify:
+    - resource_type (e.g., S3 bucket, IAM user)
+    - property (e.g., encryption, mfa_enabled)
+    - expected_value (e.g., AES256, true)
+    
+    PROCEDURE:
+    1. Extract all rules from the provided text.
+    2. Convert the list of rules into a JSON string.
+    3. CALL the `save_rules_to_state` tool with that JSON string.
     
     CRITICAL: 
-    1. Your ONLY goal is to call the `save_rules_to_state` tool.
-    2. You MUST pass the rules as a JSON-formatted string to the 'rules_as_json_string' parameter.
-    3. Do NOT provide any text explanation or summary. Just call the tool.
-    
-    Source Text: 
-    {text}
+    - Do not talk to the user. 
+    - Do not summarize. 
+    - JUST call the tool.
+    - If you do not call the tool, the audit will fail.
     """,
     tools=[save_rules_to_state]
 )
