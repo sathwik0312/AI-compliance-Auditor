@@ -20,7 +20,6 @@ logger = logging.getLogger("AuditorAPI")
 
 app = FastAPI()
 
-# VERY permissive CORS for the interview
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,8 +47,12 @@ async def run_agent_conversation(agent, request, app_name, session_id, user_id):
     else:
         content = types.Content(role='user', parts=[types.Part(data=request)])
     
-    async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-        pass
+    # Wrap in a robust try-except to prevent crashing the whole pipeline
+    try:
+        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+            pass
+    except Exception as e:
+        logger.error(f"Error in runner for {agent.name}: {str(e)}")
     
     session = await session_service.get_session(app_name, session_id, user_id)
     return session.state
@@ -61,33 +64,40 @@ async def start_audit(policy: UploadFile = File(...), config: UploadFile = File(
     SESSION_ID = session.id
     logger.info(f"New session started: {SESSION_ID}")
 
-    policy_content = (await policy.read()).decode('utf-8')
-    config_content = (await config.read()).decode('utf-8')
+    try:
+        policy_content = (await policy.read()).decode('utf-8')
+        config_content = (await config.read()).decode('utf-8')
+    except Exception as e:
+        logger.error(f"File read error: {e}")
+        return {"status": "error", "message": "Failed to read uploaded files."}
 
     # Step 1: Policy Analyst
-    state = await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
-    
-    if "parsed_rules" not in state or not state["parsed_rules"]:
-         return {"status": "error", "message": "Policy agent failed to extract rules."}
+    try:
+        state = await run_agent_conversation(policy_agent, policy_content, APP_NAME, SESSION_ID, USER_ID)
+        if "parsed_rules" not in state or not state["parsed_rules"]:
+             return {"status": "error", "message": "Policy agent failed to extract rules."}
 
-    # Step 2: Auditor
-    state = await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
-    
-    # Step 3: Remediator
-    state = await run_agent_conversation(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
+        # Step 2: Auditor
+        state = await run_agent_conversation(auditor_agent, config_content, APP_NAME, SESSION_ID, USER_ID)
+        
+        # Step 3: Remediator
+        state = await run_agent_conversation(remediator_agent, "Generate remediation plan.", APP_NAME, SESSION_ID, USER_ID)
 
-    # Step 4: Report Writer
-    state = await run_agent_conversation(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
+        # Step 4: Report Writer
+        state = await run_agent_conversation(report_agent, "Compile final report.", APP_NAME, SESSION_ID, USER_ID)
 
-    return {
-        "status": "success",
-        "sessionId": SESSION_ID,
-        "results": {
-            "parsed_rules": state.get("parsed_rules"),
-            "findings": state.get("audit_findings"),
-            "final_report": state.get("final_report")
+        return {
+            "status": "success",
+            "sessionId": SESSION_ID,
+            "results": {
+                "parsed_rules": state.get("parsed_rules"),
+                "findings": state.get("audit_findings"),
+                "final_report": state.get("final_report")
+            }
         }
-    }
+    except Exception as e:
+        logger.error(f"Audit Pipeline Crash: {e}")
+        return {"status": "error", "message": f"Pipeline crashed: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
