@@ -8,5 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python","main.py"]
+EXPOSE 8000
+
+# Persistent API server (api.py) by default. Run the one-shot CLI pipeline
+# instead with: docker run <image> python main.py
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
 

@@ -2,7 +2,7 @@ from google.adk.agents import Agent
 
 report_agent = Agent(
     name="report_writer",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     description="Summarizes the final compliance audit results into a professional report.",
     instruction="""
     You are a Senior Compliance Officer.

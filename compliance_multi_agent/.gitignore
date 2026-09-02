@@ -1,1 +1,8 @@
 .env
+__pycache__/
+*.pyc
+
+# GCP service-account key (Vertex AI ADC) — never commit
+service-account*.json
+gcp-key*.json
+*.serviceaccount.json

@@ -90,7 +90,13 @@ Final Compliance Report
     ```text
         docker build -t compliance-auditor .
     ```
-2. Run the container
+2. Run the container, mounting a Vertex AI service-account key (see `.env.example`):
     ```text
-        docker run --rm -e GOOGLE_API_KEY="YOUR_API_KEY_GOES_HERE" compliance-auditor
+        docker run --rm \
+          -e GOOGLE_GENAI_USE_VERTEXAI=true \
+          -e GOOGLE_CLOUD_PROJECT="your-gcp-project-id" \
+          -e GOOGLE_CLOUD_LOCATION="us-central1" \
+          -e GOOGLE_APPLICATION_CREDENTIALS=/secrets/service-account.json \
+          -v /path/to/your/service-account.json:/secrets/service-account.json:ro \
+          compliance-auditor
     ```

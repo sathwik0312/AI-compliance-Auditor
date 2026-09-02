@@ -76,7 +76,7 @@ def audit_configuration(config_as_json_string: str, parsed_rules_json: str, tool
 
 auditor_agent = Agent(
     name="config_auditor",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     description="Audits configuration against parsed rules.",
     instruction="""
     You are a technical auditor. 

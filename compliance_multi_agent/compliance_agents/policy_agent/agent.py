@@ -4,7 +4,7 @@ import json
 
 policy_agent = Agent(
     name="policy_agent",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     description="Extracts structured compliance rules from text.",
     instruction="""
     You are a JSON extraction engine. 
